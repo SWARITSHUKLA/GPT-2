@@ -82,7 +82,7 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias = False)
 
 
-    def forward(self, idx):
+    def forward(self, idx,targets = None):
         B, T  = idx.size()
         assert T<= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
         pos = torch.arange(0,T, dtype = torch.long, device = idx.device)
@@ -94,7 +94,10 @@ class GPT(nn.Module):
         
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
-        return logits
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        return logits, loss 
         
 
     @classmethod
@@ -168,7 +171,7 @@ with open('A Clash of Kings.txt', 'r', encoding = 'utf-8') as f:
     text1 = f.read()
 with open('a game of thrones.txt', 'r', encoding = 'utf-8') as g:
     text2 = g.read()
-#device = 'cpu' 
+device = 'cpu' 
 data = text1+text2
 text = data[:1000]
 tokens = enc.encode(text)
@@ -180,8 +183,9 @@ y = buf[1:].view(B,T)
 
 model = GPT(GPTConfig())
 model.to(device)
-logits = model(x)
-print(logits.shape)
+logits, loss = model(x,y)
+print(loss.item())
+#the loss here is 10.957728385925293 and -ln(1/(whatever the vocab size is) is near 10 too so our initialization is good )
 import sys; sys.exit(0)
 
 #prefix tokens
