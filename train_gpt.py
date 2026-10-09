@@ -159,14 +159,35 @@ print(device)
 
 num_return_sequences = 5
 max_length = 30
-model = GPT.from_pretrained('gpt2')
-model.eval()
+
+# getting a batch to train
+import tiktoken
+enc = tiktoken.get_encoding('gpt2')
+
+with open('A Clash of Kings.txt', 'r', encoding = 'utf-8') as f:
+    text1 = f.read()
+with open('a game of thrones.txt', 'r', encoding = 'utf-8') as g:
+    text2 = g.read()
+#device = 'cpu' 
+data = text1+text2
+text = data[:1000]
+tokens = enc.encode(text)
+B, T = 4, 32
+buf = torch.tensor(tokens[:B*T +1])
+x = buf[:-1].view(B,T)
+y = buf[1:].view(B,T)
+#model = GPT.from_pretrained('gpt2')
+
+model = GPT(GPTConfig())
 model.to(device)
+logits = model(x)
+print(logits.shape)
+import sys; sys.exit(0)
 
 #prefix tokens
 import tiktoken 
 enc = tiktoken.get_encoding('gpt2')
-tokens = enc.encode("Hello, i am a language model,")
+tokens = enc.encode("im a language model")
 tokens = torch.tensor(tokens, dtype = torch.long)
 tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
 
