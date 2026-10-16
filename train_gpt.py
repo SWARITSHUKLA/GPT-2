@@ -218,15 +218,13 @@ elif device == 'mps':
     torch.mps.manual_seed(42)
 
 train_loader = DataLoaderLite(B = 4,T = 1024)
-#device = 'cpu'
-#model = GPT.from_pretrained('gpt2')
 #torch.set_float32_matmul_precision('high') #tf32 is nvidiaa exclusive aand dosent work on apple silicon
 
 model = GPT(GPTConfig(vocab_size = 50304))
 model.to(device)
 # model = torch.compile(model) #torch.compile is only avialible for NVIDIA gpus and not mps so we cant use it as of now
 #logits, loss = model(x,y)
-optimizer = torch.optim.AdamW(model.parameters(), lr = 3e-4)
+optimizer = torch.optim.AdamW(model.parameters(), lr = 3e-4, betas = (0.9,0.95), eps = 1e-8)
 scaler_dtype = torch.bfloat16 
 for i in range(20):
     t0 = time.time()
@@ -236,12 +234,13 @@ for i in range(20):
     with torch.autocast(device_type="mps", dtype=scaler_dtype):
         logits, loss = model(x, y)
     loss.backward()
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     torch.mps.synchronize()
     t1 = time.time()
     dt = (t1-t0) * 1000 # in milliseconds
     tok_per_sec = (train_loader.B * train_loader.T)/ (t1-t0)
-    print(f'step {i}, loss: {loss.item()}, dt: {dt:.2f}ms, tok/sec: {tok_per_sec:.2f}')
+    print(f'step {i}, loss: {loss.item()}, norm: {norm:.3f} dt: {dt:.2f}ms, tok/sec: {tok_per_sec:.2f}')
 
 import sys; sys.exit(0)
 
