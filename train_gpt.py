@@ -24,10 +24,12 @@ class CausalSelfAtenttion(nn.Module):
         k = k.view(B,T,self.n_head, C // self.n_head).transpose(1,2)
         q = q.view(B,T,self.n_head, C // self.n_head).transpose(1,2)
         v = v.view(B,T,self.n_head, C // self.n_head).transpose(1,2)
-        att = (q@k.transpose(-2,-1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:,:,:T,:T]== 0, float('-inf'))
-        att = F.softmax(att,dim = -1)
-        y = att @ v
+
+        # att = (q@k.transpose(-2,-1)) * (1.0 / math.sqrt(k.size(-1)))
+        # att = att.masked_fill(self.bias[:,:,:T,:T]== 0, float('-inf'))
+        # att = F.softmax(att,dim = -1)
+        # y = att @ v
+        y = F.scaled_dot_product_attention(q,k,v, is_causal = True) #flaash attention doesnt exist on mps lmao
         y = y.transpose(1, 2).contiguous().view(B,T,C)
         y = self.c_proj(y)
         return y
@@ -197,6 +199,9 @@ class DataLoaderLite():
             self.current_position = 0
         return x,y
 
+
+import time
+
 device = 'cpu'
 if torch.cuda.is_available():
     device = 'cuda'
@@ -212,22 +217,31 @@ if device == 'cuda':
 elif device == 'mps':
     torch.mps.manual_seed(42)
 
-train_loader = DataLoaderLite(B = 4,T = 32)
+train_loader = DataLoaderLite(B = 4,T = 1024)
 #device = 'cpu'
 #model = GPT.from_pretrained('gpt2')
+#torch.set_float32_matmul_precision('high') #tf32 is nvidiaa exclusive aand dosent work on apple silicon
 
-model = GPT(GPTConfig())
+model = GPT(GPTConfig(vocab_size = 50304))
 model.to(device)
+# model = torch.compile(model) #torch.compile is only avialible for NVIDIA gpus and not mps so we cant use it as of now
 #logits, loss = model(x,y)
 optimizer = torch.optim.AdamW(model.parameters(), lr = 3e-4)
-for i in range(100):
+scaler_dtype = torch.bfloat16 
+for i in range(20):
+    t0 = time.time()
     x,y = train_loader.next_batch()
     x,y = x.to(device), y.to(device)
     optimizer.zero_grad()
-    logits, loss = model(x,y)
+    with torch.autocast(device_type="mps", dtype=scaler_dtype):
+        logits, loss = model(x, y)
     loss.backward()
     optimizer.step()
-    print(f'step {i}, loss: {loss.item()}')
+    torch.mps.synchronize()
+    t1 = time.time()
+    dt = (t1-t0) * 1000 # in milliseconds
+    tok_per_sec = (train_loader.B * train_loader.T)/ (t1-t0)
+    print(f'step {i}, loss: {loss.item()}, dt: {dt:.2f}ms, tok/sec: {tok_per_sec:.2f}')
 
 import sys; sys.exit(0)
 
